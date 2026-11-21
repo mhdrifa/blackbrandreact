@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BLACK BRAND — Order</title>
+  <noscript><meta http-equiv="refresh" content="0;url=index.html#/tracking"></noscript>
+</head>
+<body style="font-family:Inter,sans-serif;padding:24px;background:#f8f7f4;color:#090909">
+  <p>Loading your order… <a href="index.html#/tracking">Continue</a></p>
+  <script>
+    (function () {
+      var id = new URLSearchParams(location.search).get('order_id');
+      location.replace('index.html#/' + (id && /^[A-Za-z0-9\-_]{6,60}$/.test(id) ? 'order-confirmation/' + encodeURIComponent(id) : 'tracking'));
+    })();
+  </script>
+</body>
+</html>
