@@ -127,15 +127,23 @@ export default function ProductCard({ product, index = 0 }) {
           {product.name}
         </Link>
 
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-sm font-semibold text-obsidian">
-            {money(product.priceFrom)}
-            {product.priceFrom < product.regularPrice && (
-              <s className="ml-1.5 text-xs font-normal text-slate">{money(product.regularPrice)}</s>
-            )}
-          </span>
-          <span className="text-[10px] uppercase tracking-[0.08em] text-slate">{product.category}</span>
-        </div>
+        <div className="flex flex-col gap-1">
+  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+    <span className="whitespace-nowrap text-sm font-semibold text-obsidian">
+      {money(product.priceFrom)}
+    </span>
+
+    {product.priceFrom < product.regularPrice && (
+      <s className="whitespace-nowrap text-xs text-slate">
+        {money(product.regularPrice)}
+      </s>
+    )}
+  </div>
+
+  <span className="text-[10px] uppercase tracking-[0.08em] text-slate">
+    {product.category}
+  </span>
+</div>
 
         <div className="mt-auto flex items-center justify-between gap-2 pt-1.5">
           <div className="flex flex-wrap gap-1">
