@@ -100,6 +100,14 @@ export async function apiPost(action, data = {}, auth = {}) {
       throw new ApiError(e.code || 'ERROR', e.message, e.details);
     }
   }
+  if (isSupabasePreview) {
+  console.warn('[Supabase Preview] Unsupported GET action:', action);
+
+  throw new ApiError(
+    'MIGRATION_NOT_READY',
+    `Preview backend does not support "${action}" yet.`
+  );
+}
 
   const { url } = resolveApiEndpoint();
 
