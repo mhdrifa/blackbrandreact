@@ -1,9 +1,17 @@
 
 import { createClient } from '@supabase/supabase-js';
 
+// =====================================================
+// SUPABASE ENVIRONMENT CONFIGURATION
+// =====================================================
+
 const url = process.env.SUPABASE_URL;
 const secretKey = process.env.SUPABASE_SECRET_KEY;
 const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+
+// =====================================================
+// SUPABASE AUTH OPTIONS
+// =====================================================
 
 const authOptions = {
   auth: {
@@ -13,32 +21,55 @@ const authOptions = {
   }
 };
 
+// =====================================================
+// ADMIN DATABASE CLIENT (SERVER ONLY)
+// =====================================================
+
 export function getAdminDatabase() {
   if (!url || !secretKey) {
-    throw new Error('Supabase backend configuration is missing.');
+    throw new Error(
+      'Supabase backend configuration is missing.'
+    );
   }
 
   return createClient(url, secretKey, {
     ...authOptions,
-    db: { schema: 'black_brand' }
+    db: {
+      schema: 'black_brand'
+    }
   });
 }
 
+// =====================================================
+// SUPABASE AUTH CLIENT
+// =====================================================
+
 export function getAuthClient() {
   if (!url || !publishableKey) {
-    throw new Error('Supabase authentication configuration is missing.');
+    throw new Error(
+      'Supabase authentication configuration is missing.'
+    );
   }
 
-  return createClient(url, publishableKey, authOptions);
+  return createClient(
+    url,
+    publishableKey,
+    authOptions
+  );
 }
+
+// =====================================================
+// VERIFY ADMIN EMAIL AND PASSWORD
+// =====================================================
 
 export async function verifyAdminCredentials(email, password) {
   const auth = getAuthClient();
 
-  const { data, error } = await auth.auth.signInWithPassword({
-    email,
-    password
-  });
+  const { data, error } =
+    await auth.auth.signInWithPassword({
+      email,
+      password
+    });
 
   if (error || !data?.user || !data?.session) {
     return {
@@ -49,15 +80,19 @@ export async function verifyAdminCredentials(email, password) {
 
   const database = getAdminDatabase();
 
-  const { data: admin, error: adminError } = await database
-    .from('admin_users')
-    .select('user_id, role, active')
-    .eq('user_id', data.user.id)
-    .maybeSingle();
+  const { data: admin, error: adminError } =
+    await database
+      .from('admin_users')
+      .select('user_id, role, active')
+      .eq('user_id', data.user.id)
+      .maybeSingle();
 
-  if (adminError || !admin?.active ||
-      !['owner', 'staff'].includes(admin.role)) {
-    await auth.auth.signOut();
+  if (
+    adminError ||
+    !admin?.active ||
+    !['owner', 'staff'].includes(admin.role)
+  ) {
+    await auth.auth.signOut().catch(() => {});
 
     return {
       ok: false,
@@ -74,9 +109,19 @@ export async function verifyAdminCredentials(email, password) {
   };
 }
 
-export function getUserSessionClient(accessToken, refreshToken) {
+// =====================================================
+// CREATE AUTHENTICATED USER SESSION CLIENT
+// REQUIRED FOR SUPABASE MFA
+// =====================================================
+
+export async function getUserSessionClient(
+  accessToken,
+  refreshToken
+) {
   if (!url || !publishableKey) {
-    throw new Error('Supabase authentication configuration is missing.');
+    throw new Error(
+      'Supabase authentication configuration is missing.'
+    );
   }
 
   if (
@@ -85,16 +130,44 @@ export function getUserSessionClient(accessToken, refreshToken) {
     typeof refreshToken !== 'string' ||
     !refreshToken
   ) {
-    throw new Error('A valid authentication session is required.');
+    throw new Error(
+      'A valid authentication session is required.'
+    );
   }
 
-  const client = createClient(url, publishableKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false
+  // Separate client for each authenticated request.
+  const client = createClient(
+    url,
+    publishableKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
     }
-  });
+  );
 
-  return client;
+  // Attach and validate the authenticated session.
+  const { data, error } =
+    await client.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+
+  if (
+    error ||
+    !data?.session ||
+    !data?.user
+  ) {
+    throw new Error(
+      'Authentication session is invalid or expired.'
+    );
+  }
+
+  return {
+    client,
+    session: data.session,
+    user: data.user
+  };
 }
