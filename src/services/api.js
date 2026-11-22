@@ -143,7 +143,44 @@ export async function apiPost(action, data = {}, auth = {}) {
   // Block all writes during Supabase migration testing.
   // Prevents test orders, payments, and admin changes
   // from reaching the existing production backend.
+ 
+  // Supabase migration Preview:
+  // Allow only admin authentication requests.
   if (isSupabasePreview) {
+    const allowedAuthActions = new Set([
+      'adminLogin',
+      'adminTotpSetup',
+      'adminTotpConfirm'
+    ]);
+
+    if (allowedAuthActions.has(action)) {
+      let response;
+
+      try {
+        response = await fetch('/api/admin-auth', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'same-origin',
+          cache: 'no-store',
+          body: JSON.stringify({
+            action,
+            data,
+            ...auth
+          })
+        });
+      } catch {
+        throw new ApiError(
+          'NETWORK',
+          'Cannot reach the Supabase admin authentication API.'
+        );
+      }
+
+      return parseResponse(response);
+    }
+
+    // Keep all other Preview POST operations disabled.
     console.warn(
       '[Supabase Preview] Blocked POST action:',
       action
@@ -151,9 +188,10 @@ export async function apiPost(action, data = {}, auth = {}) {
 
     throw new ApiError(
       'MIGRATION_NOT_READY',
-      'This is a testing version of BLACK BRAND. Orders, payments, and account changes are temporarily disabled.'
+      'This feature is not available during Supabase migration testing.'
     );
   }
+
 
   // Existing production Google Apps Script backend
   const { url } = resolveApiEndpoint();
