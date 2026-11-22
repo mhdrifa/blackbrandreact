@@ -62,6 +62,7 @@ export async function enrollAdminTotp(
   if (verifiedTotp) {
     return {
       alreadyEnrolled: true,
+      nextStep: 'verify',
       factorId: verifiedTotp.id,
       session: {
         accessToken: session.access_token,
@@ -88,6 +89,7 @@ export async function enrollAdminTotp(
 
   return {
     alreadyEnrolled: false,
+    nextStep: 'setup',
     factorId: data.id,
     otpauthUri: data.totp.uri,
     secret: data.totp.secret,
@@ -197,6 +199,11 @@ export async function confirmAdminTotp(
     refreshToken: sessionData.session.refresh_token,
     role: admin.role,
     userId: user.id,
+    email: user.email || '',
+    name: user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      user.email?.split('@')[0] ||
+      'Administrator',
     scope: 'full'
   };
 }

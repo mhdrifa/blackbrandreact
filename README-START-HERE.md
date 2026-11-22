@@ -33,6 +33,31 @@ URL to be supplied explicitly via `VITE_PRODUCTION_API_URL`; see `.env.example`.
 The mock storefront and admin use simulated, local browser data; do not assume
 the actual Google Apps Script backend or payments have been tested.
 
+## Supabase Preview admin authentication
+
+Enable `VITE_USE_SUPABASE_PRODUCTS=true` only in an isolated Vercel Preview
+or local test environment. Configure `SUPABASE_URL`,
+`SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, and a random 32-byte
+`ADMIN_SESSION_ENCRYPTION_KEY` (hex or base64) as server environment variables.
+Set `ADMIN_ALLOWED_ORIGIN` to the exact Preview origin when available. Do not
+prefix server secrets with `VITE_`.
+
+The session store uses the existing `black_brand.admin_sessions` columns:
+`session_hash` (text primary key), `user_id` (UUID), `assurance_level`,
+`encrypted_auth_state`, `created_at`, `expires_at`, `revoked_at`, and
+`updated_at`. Keep this table inaccessible to browser clients; only the server
+secret key should access it. Login throttling calls `admin_login_reserve` and
+`admin_login_reset` with `p_identifier_hash`. Supabase Preview exposes
+authentication only; admin data operations remain blocked until their
+server-side authorization and data APIs are implemented.
+
+The existing `admin_login_reserve` and `admin_login_reset` functions were
+verified to allow three reservations, lock for 15 minutes on the third, deny
+the fourth request, and reset the lock after successful MFA. This application
+does not replace those database functions. The rollback-only SQL assertions
+are in `supabase/tests/admin_login_lockout.sql`; an authorized database
+operator may run them against staging to verify the deployed behavior.
+
 ## Run regression tests
 
 ```powershell

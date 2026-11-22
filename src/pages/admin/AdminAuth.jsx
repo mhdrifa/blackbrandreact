@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { motion } from 'motion/react';
 import { Lock, ShieldCheck } from 'lucide-react';
 import { APP_MODE } from '../../config/brand';
-import { apiPost } from '../../services/api';
+import { apiPost, IS_SUPABASE_PREVIEW } from '../../services/api';
 import { modeKey } from '../../utils/format';
 import { LUXURY_EASE } from '../../components/ui/Primitives';
 
@@ -53,11 +53,18 @@ export function AdminLoginView({ initialMsg = '', onAuthenticated, onRequireSetu
         password,
         code: needCode ? code.trim() : undefined
       });
-      sessionStorage.setItem(KEY_ADMIN_TOK, r.token);
+      if (!IS_SUPABASE_PREVIEW && r.token) {
+        sessionStorage.setItem(KEY_ADMIN_TOK, r.token);
+      }
+      setPassword('');
       if (r.scope === 'setup') onRequireSetup(r);
       else onAuthenticated(r);
     } catch (err) {
-      if (err.code === 'TOTP_REQUIRED' || err.code === 'INVALID_CODE') {
+      if (
+        err.code === 'TOTP_REQUIRED' ||
+        err.code === 'INVALID_CODE' ||
+        err.code === 'ALREADY_ENROLLED'
+      ) {
         setNeedCode(true);
         setMsg(err.code === 'TOTP_REQUIRED' ? '' : err.message);
       } else {
@@ -172,13 +179,17 @@ export function AdminTotpSetupView({ token, onComplete, onCancel }) {
   const setupRequestRef = useRef(null);
 
   useEffect(() => {
-    if (!token) return;
+    if (!IS_SUPABASE_PREVIEW && !token) return;
     // React StrictMode replays effects in development. Reuse the same request,
     // but attach a fresh subscriber after cleanup so the QR code still renders.
     if (setupRequestRef.current?.token !== token) {
       setupRequestRef.current = {
         token,
-        promise: apiPost('adminTotpSetup', {}, { token })
+        promise: apiPost(
+          'adminTotpSetup',
+          {},
+          IS_SUPABASE_PREVIEW ? {} : { token }
+        )
       };
     }
     let alive = true;
@@ -211,8 +222,14 @@ export function AdminTotpSetupView({ token, onComplete, onCancel }) {
     }
     setBusy(true);
     try {
-      const s = await apiPost('adminTotpConfirm', { code: code.trim() }, { token });
-      sessionStorage.setItem(KEY_ADMIN_TOK, s.token);
+      const s = await apiPost(
+        'adminTotpConfirm',
+        { code: code.trim() },
+        IS_SUPABASE_PREVIEW ? {} : { token }
+      );
+      if (!IS_SUPABASE_PREVIEW && s.token) {
+        sessionStorage.setItem(KEY_ADMIN_TOK, s.token);
+      }
       onComplete(s);
     } catch (e2) {
       setErr(e2.message);

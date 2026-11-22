@@ -4,7 +4,7 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Menu, RotateCcw } from 'lucide-react';
 import { APP_MODE, BRAND_CONFIG, IS_TEST_MODE } from '../../config/brand';
-import { apiGet, apiPost } from '../../services/api';
+import { apiGet, apiPost, IS_SUPABASE_PREVIEW } from '../../services/api';
 import { downloadFile, modeKey } from '../../utils/format';
 import { useToast } from '../../context/ToastContext';
 import { LUXURY_EASE, PageTransition, Spinner } from '../../components/ui/Primitives';
@@ -73,16 +73,25 @@ export default function AdminApp() {
   const toast = useToast();
   const location = useLocation();
 
-  const [token, setToken] = useState(() => sessionStorage.getItem(KEY_ADMIN_TOK) || '');
+  const [token, setToken] = useState(() =>
+    IS_SUPABASE_PREVIEW ? '' : sessionStorage.getItem(KEY_ADMIN_TOK) || ''
+  );
+  const [serverAuthenticated, setServerAuthenticated] = useState(false);
   const [staff, setStaff] = useState(null);
   const [scope, setScope] = useState('');
-  const [booting, setBooting] = useState(Boolean(sessionStorage.getItem(KEY_ADMIN_TOK)));
+  const [booting, setBooting] = useState(
+    IS_SUPABASE_PREVIEW || Boolean(sessionStorage.getItem(KEY_ADMIN_TOK))
+  );
   const [loginMsg, setLoginMsg] = useState('');
   const [apiVersion, setApiVersion] = useState('');
   const [sideOpen, setSideOpen] = useState(false);
 
-  const logout = useCallback((expiredMsg = '') => {
-    sessionStorage.removeItem(KEY_ADMIN_TOK);
+  const logout = useCallback((expiredMsg = '', notifyServer = true) => {
+    if (IS_SUPABASE_PREVIEW && notifyServer) {
+      apiPost('adminLogout').catch(() => {});
+    }
+    if (!IS_SUPABASE_PREVIEW) sessionStorage.removeItem(KEY_ADMIN_TOK);
+    setServerAuthenticated(false);
     setToken('');
     setStaff(null);
     setScope('');
@@ -90,24 +99,29 @@ export default function AdminApp() {
   }, []);
 
   useEffect(() => {
-    if (!token) {
+    if (!IS_SUPABASE_PREVIEW && !token) {
       setBooting(false);
       return;
     }
     let alive = true;
     setBooting(true);
-    apiPost('adminMe', {}, { token })
+    apiPost('adminMe', {}, IS_SUPABASE_PREVIEW ? {} : { token })
       .then((me) => {
         if (!alive) return;
+        if (IS_SUPABASE_PREVIEW) setServerAuthenticated(true);
         setStaff(me.staff);
         setScope(me.scope);
       })
       .catch((e) => {
         if (!alive) return;
         if (e.code === 'SETUP_REQUIRED') {
+          if (IS_SUPABASE_PREVIEW) setServerAuthenticated(true);
           setScope('setup');
         } else {
-          logout(e.code === 'SESSION_EXPIRED' ? 'Your session ended. Please sign in again.' : '');
+          logout(
+            e.code === 'SESSION_EXPIRED' ? 'Your session ended. Please sign in again.' : '',
+            false
+          );
         }
       })
       .finally(() => { if (alive) setBooting(false); });
@@ -205,17 +219,27 @@ export default function AdminApp() {
     );
   }
 
-  if (!token) {
+  const authenticated = IS_SUPABASE_PREVIEW ? serverAuthenticated : Boolean(token);
+
+  if (!authenticated) {
     return (
       <AdminLoginView
         initialMsg={loginMsg}
         onAuthenticated={(r) => {
-          setToken(r.token);
+          if (!IS_SUPABASE_PREVIEW && r.token) {
+            sessionStorage.setItem(KEY_ADMIN_TOK, r.token);
+            setToken(r.token);
+          }
+          setServerAuthenticated(true);
           setStaff(r.staff);
           setScope(r.scope);
         }}
         onRequireSetup={(r) => {
-          setToken(r.token);
+          if (!IS_SUPABASE_PREVIEW && r.token) {
+            sessionStorage.setItem(KEY_ADMIN_TOK, r.token);
+            setToken(r.token);
+          }
+          setServerAuthenticated(true);
           setStaff(r.staff);
           setScope('setup');
         }}
@@ -228,7 +252,8 @@ export default function AdminApp() {
       <AdminTotpSetupView
         token={token}
         onComplete={(s) => {
-          setToken(s.token);
+          setToken(s.token || '');
+          setServerAuthenticated(true);
           setStaff(s.staff);
           setScope('full');
         }}
@@ -358,10 +383,7 @@ export default function AdminApp() {
             <AdminBtn
               size="sm"
               variant="outline"
-              onClick={async () => {
-                try { await apiPost('adminMe', {}, { token }); } catch { /* ignore */ }
-                logout();
-              }}
+                  onClick={() => logout()}
             >
               Sign out
             </AdminBtn>
@@ -403,8 +425,10 @@ export default function AdminApp() {
                     list={list}
                     staff={staff}
                     onTokenUpdated={(s) => {
-                      sessionStorage.setItem(KEY_ADMIN_TOK, s.token);
-                      setToken(s.token);
+                      if (!IS_SUPABASE_PREVIEW && s.token) {
+                        sessionStorage.setItem(KEY_ADMIN_TOK, s.token);
+                      }
+                      setToken(s.token || '');
                       setStaff(s.staff);
                     }}
                     toast={toast}

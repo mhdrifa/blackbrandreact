@@ -4,7 +4,7 @@ import { APP_MODE, resolveApiEndpoint } from '../config/brand';
 
 // Supabase testing mode.
 // Enable only in the Vercel Preview environment.
-const isSupabasePreview =
+export const IS_SUPABASE_PREVIEW =
   import.meta.env.VITE_USE_SUPABASE_PRODUCTS === 'true';
 
 export class ApiError extends Error {
@@ -67,7 +67,7 @@ export async function apiGet(action, params = {}) {
   }
 
   // Supabase migration Preview
-  if (isSupabasePreview) {
+  if (IS_SUPABASE_PREVIEW) {
     // Public storefront catalog
     if (action === 'catalog') {
       let response;
@@ -146,11 +146,13 @@ export async function apiPost(action, data = {}, auth = {}) {
  
   // Supabase migration Preview:
   // Allow only admin authentication requests.
-  if (isSupabasePreview) {
+  if (IS_SUPABASE_PREVIEW) {
     const allowedAuthActions = new Set([
       'adminLogin',
       'adminTotpSetup',
-      'adminTotpConfirm'
+      'adminTotpConfirm',
+      'adminMe',
+      'adminLogout'
     ]);
 
     if (allowedAuthActions.has(action)) {
@@ -164,11 +166,7 @@ export async function apiPost(action, data = {}, auth = {}) {
           },
           credentials: 'same-origin',
           cache: 'no-store',
-          body: JSON.stringify({
-            action,
-            data,
-            ...auth
-          })
+          body: JSON.stringify({ action, data })
         });
       } catch {
         throw new ApiError(

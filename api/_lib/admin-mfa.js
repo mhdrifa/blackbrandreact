@@ -45,10 +45,16 @@ export async function requireMfaSession(accessToken) {
 
   // Do not trust a token's decoded payload without verification.
   // getUser() above verifies the token with Supabase Auth.
-  const payload = JSON.parse(
-    Buffer.from(accessToken.split('.')[1], 'base64url')
-      .toString('utf8')
-  );
+  let payload;
+  try {
+    const tokenParts = accessToken.split('.');
+    if (tokenParts.length !== 3) return null;
+    payload = JSON.parse(
+      Buffer.from(tokenParts[1], 'base64url').toString('utf8')
+    );
+  } catch {
+    return null;
+  }
 
   if (payload.aal !== 'aal2') {
     return null;

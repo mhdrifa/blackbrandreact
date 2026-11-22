@@ -92,7 +92,7 @@ export async function verifyAdminCredentials(email, password) {
     !admin?.active ||
     !['owner', 'staff'].includes(admin.role)
   ) {
-    await auth.auth.signOut().catch(() => {});
+    await auth.auth.signOut({ scope: 'local' }).catch(() => {});
 
     return {
       ok: false,
