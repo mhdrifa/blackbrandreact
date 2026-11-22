@@ -96,13 +96,13 @@ export default async function handler(req, res) {
 
     // Password is valid, but MFA has NOT been verified.
     // Never return an AAL1 session to the dashboard.
-    return send(res, 503, {
-      ok: false,
-      error: {
-        code: 'MFA_NOT_READY',
-        message: 'Password verified. MFA login is not enabled yet.'
-      }
-    });
+   return send(res, 503, {
+  ok: false,
+  error: {
+    code: 'AUTH_NOT_READY',
+    message: 'Admin authentication is not available yet.'
+  }
+});
 
   } catch (error) {
     console.error(
