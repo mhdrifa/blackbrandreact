@@ -2,9 +2,15 @@
 /* global __ALLOW_MOCK__ */
 import { APP_MODE, resolveApiEndpoint } from '../config/brand';
 
+// Supabase testing mode.
+// Enable only in the Vercel Preview environment.
+const isSupabasePreview =
+  import.meta.env.VITE_USE_SUPABASE_PRODUCTS === 'true';
+
 export class ApiError extends Error {
   constructor(code, message, details, status) {
     super(message);
+
     this.name = 'ApiError';
     this.code = code;
     this.details = details;
@@ -12,6 +18,7 @@ export class ApiError extends Error {
   }
 }
 
+// Parse standard API responses
 async function parseResponse(res) {
   let json;
 
@@ -20,7 +27,9 @@ async function parseResponse(res) {
   } catch {
     throw new ApiError(
       'NETWORK',
-      'The server returned an unreadable response. Please try again.'
+      'The server returned an unreadable response. Please try again.',
+      undefined,
+      res.status
     );
   }
 
@@ -29,7 +38,10 @@ async function parseResponse(res) {
 
     throw new ApiError(
       error?.code || 'ERROR',
-      error?.message || (typeof error === 'string' ? error : 'Request failed.'),
+      error?.message ||
+        (typeof error === 'string'
+          ? error
+          : 'Request failed.'),
       error?.details,
       res.status
     );
@@ -38,48 +50,69 @@ async function parseResponse(res) {
   return json.data;
 }
 
+// GET REQUESTS
 export async function apiGet(action, params = {}) {
-  // Preserve mock mode
+  // Preserve existing mock mode
   if (__ALLOW_MOCK__ && APP_MODE === 'mock') {
     try {
       const { mockGet } = await import('./mockBackend');
       return await mockGet(action, params);
-    } catch (e) {
-      throw new ApiError(e.code || 'ERROR', e.message, e.details);
-    }
-  }
-
- // Supabase migration: explicitly enabled for testing only
-const isSupabasePreview =
-  import.meta.env.VITE_USE_SUPABASE_PRODUCTS === 'true';
-
-if (isSupabasePreview && action === 'catalog') {
-    let response;
-
-    try {
-      response = await fetch('/api/catalog');
-    } catch {
+    } catch (error) {
       throw new ApiError(
-        'NETWORK',
-        'Cannot reach the products API.'
+        error.code || 'ERROR',
+        error.message,
+        error.details
       );
     }
-
-    return parseResponse(response);
   }
 
-  // All other requests use the existing Google Apps Script
+  // Supabase migration Preview
+  if (isSupabasePreview) {
+    // Public storefront catalog
+    if (action === 'catalog') {
+      let response;
+
+      try {
+        response = await fetch('/api/catalog', {
+          method: 'GET',
+          cache: 'no-store'
+        });
+      } catch {
+        throw new ApiError(
+          'NETWORK',
+          'Cannot reach the Supabase catalog API.'
+        );
+      }
+
+      return parseResponse(response);
+    }
+
+    // Other endpoints have not been migrated yet
+    console.warn(
+      '[Supabase Preview] Unsupported GET action:',
+      action
+    );
+
+    throw new ApiError(
+      'MIGRATION_NOT_READY',
+      `The "${action}" feature is not available in this test version.`
+    );
+  }
+
+  // Existing production Google Apps Script backend
   const { url } = resolveApiEndpoint();
 
-  const q = new URLSearchParams({
+  const query = new URLSearchParams({
     action,
     ...params
   });
 
-  let res;
+  let response;
 
   try {
-    res = await fetch(`${url}?${q.toString()}`);
+    response = await fetch(
+      `${url}?${query.toString()}`
+    );
   } catch {
     throw new ApiError(
       'NETWORK',
@@ -87,28 +120,42 @@ if (isSupabasePreview && action === 'catalog') {
     );
   }
 
-  return parseResponse(res);
+  return parseResponse(response);
 }
 
-// Existing POST requests remain unchanged
+// POST REQUESTS
 export async function apiPost(action, data = {}, auth = {}) {
+  // Preserve existing mock mode
   if (__ALLOW_MOCK__ && APP_MODE === 'mock') {
     try {
       const { mockPost } = await import('./mockBackend');
+
       return await mockPost(action, data, auth);
-    } catch (e) {
-      throw new ApiError(e.code || 'ERROR', e.message, e.details);
+    } catch (error) {
+      throw new ApiError(
+        error.code || 'ERROR',
+        error.message,
+        error.details
+      );
     }
   }
+
+  // Block all writes during Supabase migration testing.
+  // Prevents test orders, payments, and admin changes
+  // from reaching the existing production backend.
   if (isSupabasePreview) {
-  console.warn('[Supabase Preview] Unsupported GET action:', action);
+    console.warn(
+      '[Supabase Preview] Blocked POST action:',
+      action
+    );
 
-  throw new ApiError(
-    'MIGRATION_NOT_READY',
-    `Preview backend does not support "${action}" yet.`
-  );
-}
+    throw new ApiError(
+      'MIGRATION_NOT_READY',
+      'This is a testing version of BLACK BRAND. Orders, payments, and account changes are temporarily disabled.'
+    );
+  }
 
+  // Existing production Google Apps Script backend
   const { url } = resolveApiEndpoint();
 
   const body = {
@@ -117,10 +164,10 @@ export async function apiPost(action, data = {}, auth = {}) {
     ...auth
   };
 
-  let res;
+  let response;
 
   try {
-    res = await fetch(url, {
+    response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
@@ -134,5 +181,5 @@ export async function apiPost(action, data = {}, auth = {}) {
     );
   }
 
-  return parseResponse(res);
+  return parseResponse(response);
 }

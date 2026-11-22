@@ -135,7 +135,7 @@ export default async function handler(req, res) {
 
             return {
               variantId: v.variant_id,
-              size: v.size || '',
+              size: String(v.size || '').replace(/\.0+$/, ''),
               color: v.color || '',
               price:
                 variantPrice > 0
