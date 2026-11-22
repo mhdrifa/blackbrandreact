@@ -4,33 +4,47 @@ import {
   getUserSessionClient
 } from './admin-supabase.js';
 
+// =====================================================
+// VERIFY ACTIVE ADMINISTRATOR
+// =====================================================
+
+async function verifyActiveAdmin(userId) {
+  const database = getAdminDatabase();
+
+  const { data: admin, error } = await database
+    .from('admin_users')
+    .select('user_id, role, active')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (
+    error ||
+    !admin?.active ||
+    !['owner', 'staff'].includes(admin.role)
+  ) {
+    throw new Error('Unauthorized administrator.');
+  }
+
+  return admin;
+}
+
+// =====================================================
+// ENROLL GOOGLE AUTHENTICATOR
+// =====================================================
+
 export async function enrollAdminTotp(
   accessToken,
   refreshToken
 ) {
+  // Establish the authenticated Supabase session.
   const { client, user, session } =
     await getUserSessionClient(
       accessToken,
       refreshToken
     );
 
-  // Verify this user is an active administrator.
-  const database = getAdminDatabase();
-
-  const { data: admin, error: adminError } =
-    await database
-      .from('admin_users')
-      .select('role, active')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-  if (
-    adminError ||
-    !admin?.active ||
-    !['owner', 'staff'].includes(admin.role)
-  ) {
-    throw new Error('Unauthorized administrator.');
-  }
+  // Only active administrators can enroll MFA.
+  await verifyActiveAdmin(user.id);
 
   // Check existing MFA factors.
   const { data: factors, error: factorsError } =
@@ -40,16 +54,15 @@ export async function enrollAdminTotp(
     throw new Error('Unable to check MFA factors.');
   }
 
-  // Do not create another factor if TOTP
-  // is already verified.
-  const verifiedTotp =
-    factors?.totp?.find(
-      (factor) => factor.status === 'verified'
-    );
+  // Prevent duplicate verified TOTP enrollment.
+  const verifiedTotp = factors?.totp?.find(
+    (factor) => factor.status === 'verified'
+  );
 
   if (verifiedTotp) {
     return {
       alreadyEnrolled: true,
+      factorId: verifiedTotp.id,
       session: {
         accessToken: session.access_token,
         refreshToken: session.refresh_token
@@ -57,14 +70,19 @@ export async function enrollAdminTotp(
     };
   }
 
-  // Enroll a new TOTP factor.
+  // Create a new TOTP enrollment.
   const { data, error } =
     await client.auth.mfa.enroll({
       factorType: 'totp',
       friendlyName: 'BLACK BRAND Admin'
     });
 
-  if (error || !data?.id || !data?.totp) {
+  if (
+    error ||
+    !data?.id ||
+    !data?.totp?.uri ||
+    !data?.totp?.secret
+  ) {
     throw new Error('Unable to enroll authenticator.');
   }
 
@@ -80,6 +98,10 @@ export async function enrollAdminTotp(
   };
 }
 
+// =====================================================
+// CONFIRM GOOGLE AUTHENTICATOR CODE
+// =====================================================
+
 export async function confirmAdminTotp(
   accessToken,
   refreshToken,
@@ -94,32 +116,17 @@ export async function confirmAdminTotp(
     throw new Error('Invalid authenticator request.');
   }
 
-  // Establish the password-authenticated user session.
+  // Establish the password-authenticated session.
   const { client, user } =
     await getUserSessionClient(
       accessToken,
       refreshToken
     );
 
-  // Check that the user is still an active administrator.
-  const database = getAdminDatabase();
+  // Verify that this is still an active admin.
+  const admin = await verifyActiveAdmin(user.id);
 
-  const { data: admin, error: adminError } =
-    await database
-      .from('admin_users')
-      .select('role, active')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-  if (
-    adminError ||
-    !admin?.active ||
-    !['owner', 'staff'].includes(admin.role)
-  ) {
-    throw new Error('Unauthorized administrator.');
-  }
-
-  // Confirm that this factor belongs to the user.
+  // Find the user's TOTP factor.
   const { data: factors, error: factorsError } =
     await client.auth.mfa.listFactors();
 
@@ -127,10 +134,7 @@ export async function confirmAdminTotp(
     throw new Error('Unable to check authenticator.');
   }
 
-  const factor = [
-    ...(factors?.totp || []),
-    ...(factors?.all || [])
-  ].find(
+  const factor = factors?.all?.find(
     (item) =>
       item.id === factorId &&
       item.factor_type === 'totp'
@@ -150,7 +154,7 @@ export async function confirmAdminTotp(
     throw new Error('Unable to create MFA challenge.');
   }
 
-  // Verify the six-digit Google Authenticator code.
+  // Verify the six-digit authenticator code.
   const { data: verified, error: verifyError } =
     await client.auth.mfa.verify({
       factorId,
@@ -166,7 +170,18 @@ export async function confirmAdminTotp(
     throw new Error('Invalid authenticator code.');
   }
 
-  // Verify the new access token's authentication level.
+  // Establish the newly verified session.
+  const { data: sessionData, error: sessionError } =
+    await client.auth.setSession({
+      access_token: verified.access_token,
+      refresh_token: verified.refresh_token
+    });
+
+  if (sessionError || !sessionData?.session) {
+    throw new Error('Unable to establish MFA session.');
+  }
+
+  // Confirm that the session has MFA assurance level AAL2.
   const { data: aalData, error: aalError } =
     await client.auth.mfa.getAuthenticatorAssuranceLevel();
 
@@ -178,8 +193,8 @@ export async function confirmAdminTotp(
   }
 
   return {
-    accessToken: verified.access_token,
-    refreshToken: verified.refresh_token,
+    accessToken: sessionData.session.access_token,
+    refreshToken: sessionData.session.refresh_token,
     role: admin.role,
     userId: user.id,
     scope: 'full'
