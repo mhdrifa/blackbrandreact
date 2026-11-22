@@ -73,3 +73,28 @@ export async function verifyAdminCredentials(email, password) {
     auth
   };
 }
+
+export function getUserSessionClient(accessToken, refreshToken) {
+  if (!url || !publishableKey) {
+    throw new Error('Supabase authentication configuration is missing.');
+  }
+
+  if (
+    typeof accessToken !== 'string' ||
+    !accessToken ||
+    typeof refreshToken !== 'string' ||
+    !refreshToken
+  ) {
+    throw new Error('A valid authentication session is required.');
+  }
+
+  const client = createClient(url, publishableKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  });
+
+  return client;
+}
