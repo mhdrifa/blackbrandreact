@@ -1,27 +1,4 @@
 
-import pg from 'pg';
-
-const { Pool } = pg;
-
-let pool;
-
-function getPool() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error('DATABASE_URL is not configured');
-  }
-
-  if (!pool) {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: true },
-      max: 3,
-      connectionTimeoutMillis: 5000
-    });
-  }
-
-  return pool;
-}
-
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
@@ -33,26 +10,58 @@ export default async function handler(req, res) {
     });
   }
 
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+
+  if (!supabaseUrl || !secretKey) {
+    console.error('Supabase environment variables are missing');
+    return res.status(500).json({
+      ok: false,
+      error: 'Server configuration error'
+    });
+  }
+
   try {
-    const result = await getPool().query(`
-      SELECT
-        product_id,
-        product_name,
-        category,
-        description,
-        regular_price,
-        sale_price,
-        main_image_url,
-        product_status
-      FROM black_brand.products
-      WHERE LOWER(product_status) = 'published'
-      ORDER BY product_name
-      LIMIT 100
-    `);
+    const url = new URL(
+      `${supabaseUrl.replace(/\/$/, '')}/rest/v1/products`
+    );
+
+    url.searchParams.set(
+      'select',
+      'product_id,product_name,category,description,regular_price,sale_price,main_image_url,product_status'
+    );
+    url.searchParams.set('product_status', 'ilike.published');
+    url.searchParams.set('order', 'product_name.asc');
+    url.searchParams.set('limit', '100');
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        apikey: secretKey,
+        'Content-Profile': 'black_brand',
+        Accept: 'application/json'
+      },
+      signal: AbortSignal.timeout(10000)
+    });
+
+    if (!response.ok) {
+      console.error(
+        'Supabase API failed:',
+        response.status,
+        await response.text()
+      );
+
+      return res.status(502).json({
+        ok: false,
+        error: 'Unable to load products'
+      });
+    }
+
+    const products = await response.json();
 
     return res.status(200).json({
       ok: true,
-      data: result.rows
+      data: products
     });
   } catch (error) {
     console.error('Products API failed:', error.message);
